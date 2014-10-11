@@ -1,79 +1,82 @@
 # # # # #
 # a simple script to make sure that we are not double counting lakes in overlap regions
 # # # # # 
+if __name__ == '__main__':
+	import rasterio, fiona, shapely, glob, os, dill
+	# import pathos.multiprocessing as mp
+	import multiprocessing as mp
+	from shapely.geometry import *
 
-import rasterio, fiona, shapely, glob, os
-from shapely.geometry import *
+	base_dir = '/workspace/UA/malindgren/projects/Prajna/Test_Files'
 
-base_dir = '/workspace/UA/malindgren/projects/Prajna/Test_Files'
+	# loop through the rasters in some chronological order
+	tiffs = glob.glob( os.path.join( base_dir, '*.tif' ) )
+	polys = map( lambda x: x.replace( '.tif', '_WB.shp' ), tiffs )
+	# tiff_shp = zip( tiffs, polys )
+	# combinations = [i for i in combinations(map(os.path.basename, tiffs), 2)]
 
-# loop through the rasters in some chronological order
-tiffs = glob.glob( os.path.join( base_dir, '*.tif' ) )
+	# convert bounds to polygon x2
+	shp = fiona.open( polys[0] )
+	minx, miny, maxx, maxy = shp.bounds
+	test_bounds = shape({'coordinates':[[(minx, miny), (minx, maxy), (maxx, maxy), (maxx, miny)]], 'type':'Polygon'})
+	
+	shp2 = fiona.open( polys[1] )
+	minx, miny, maxx, maxy = shp2.bounds
+	test_bounds2 = shape({'coordinates':[[(minx, miny), (minx, maxy), (maxx, maxy), (maxx, miny)]], 'type':'Polygon'})
 
-polys = map( lambda x: x.replace( '.tif', '_WB.shp' ), tiffs )
-tiff_shp = zip( tiffs, polys )
+	# intersection of the two bounds 
+	bounds_intersect = test_bounds.intersection( test_bounds2 )
 
-for tiff, shp in tiff_shp:
+	# set a spatial filter over the x2 input polygons
+	# 	 shapefile iterator over a new fiona object with the 
+	#	 bounding box of the intersecting domain
+	shp_spatfilt = shp.filter( bounds_intersect.bounds )
+	shp2_spatfilt = shp2.filter( bounds_intersect.bounds )
 
-combinations = [i for i in combinations(map(os.path.basename, tiffs), 2)]
+	shp_pols = [ shape(pol['geometry']) for pol in shp_spatfilt ]
+	shp2_pols = [ shape(pol['geometry']) for pol in shp2_spatfilt ]
 
+	shape_generator = [ {shp:shp2_pols} for shp in shp_pols ]
 
+	def test_intersect( x ):
+		cur_shp = x.keys()[0]
+		shp2_pols = x.values()[0]
+		return { cur_shp:[ cur_shp.intersects( shp2 ) for shp2 in shp2_pols ] }
 
-# convert bounds to polygon x2
-shp = fiona.open( polys[0] )
-minx, miny, maxx, maxy = shp.bounds
-#	 polygon from bounding box of a shapefile:
-test_bounds = shape({'coordinates':[[(minx, miny), (minx, maxy), (maxx, maxy), (maxx, miny)]], 'type':'Polygon'})
+	pool = mp.Pool( 30 )
 
-# intersection of the two bounds 
-shp2 = fiona.open( polys[1] )
-minx, miny, maxx, maxy = shp2.bounds
-test_bounds2 = shape({'coordinates':[[(minx, miny), (minx, maxy), (maxx, maxy), (maxx, miny)]], 'type':'Polygon'})
-bounds_intersect = test_bounds.intersection(test_bounds)
+	print 'multiprocessing now...'
+	intersect_output = pool.map( test_intersect, shape_generator )
 
-# set a spatial filter over the x2 input polygons
-# 	 shapefile iterator over a new fiona object with the 
-#	 bounding box of the intersecting domain
-shp_spatfilt = shp.filter( bounds_intersect.bounds )
-shp2_spatfilt = shp2.filter( bounds_intersect.bounds )
-#	 roll that into a shapely geometry for intersection-y stuff
-shp_multi = MultiPolygon([shape(pol['geometry']) for pol in shp_spatfilt ])
-shp2_multi = MultiPolygon([shape(pol['geometry']) for pol in shp2_spatfilt ])
+	print 'closing pool...'
+	pool.close()
 
-# operate only over those filtered areas (spatially)
+	# a little test for overlap:
+	# [[True for i in j.values()[0] if i == True ] for j in intersect_output]
 
-
-# calculate some intersects between the polygons therein. 
-# --> would be dope to know how much overlap there is... so that we can decide to drop based on ovelap.
-
-# if there is intersection take the newer one. 
-
-# return as a list of the polygons we want
-# if the date is the same then just choose the first one in the list
-
-
-
-
-
-def compare_poly:
-
-for i in combinations:
-
-
-
-shp = fiona.open( polys[0] )
-poly_list = [shape(pol['geometry']) for pol in fiona.open(polys[0]) ]
-test_intersect = [ pol2.intersects( pol ) for pol in poly_list for pol2 in poly_list if pol2 is not pol ]
+	#	 roll that into a shapely geometry for intersection-y stuff
+	# shp_multi = MultiPolygon([shape(pol['geometry'])) for pol in shp_spatfilt ])
+	# shp2_multi = MultiPolygon([shape(pol['geometry']) for pol in shp2_spatfilt ])
+	# %time big_test = shp2_multi.intersection( shp_multi ) # 28 mins...
 
 
+	# operate only over those filtered areas (spatially)
 
-with fiona.open(polys[0]) as shp:
+
+	# intersect_test = shp2_multi.intersects( shp_multi ) # not sure if this is doable or not
+
+	# calculate some intersects between the polygons therein. 
+	# --> would be dope to know how much overlap there is... so that we can decide to drop based on ovelap.
+
+	# if there is intersection take the newer one. 
+
+	# return as a list of the polygons we want
+	# if the date is the same then just choose the first one in the list
 
 
-# TEST
-for tiff in tiffs:
-	for tiff2 in tiffs:
-		if tiff2 is not tiff:
 
+	# shp = fiona.open( polys[0] )
+	# poly_list = [shape(pol['geometry']) for pol in fiona.open(polys[0]) ]
+	# test_intersect = [ pol2.intersects( pol ) for pol in poly_list for pol2 in poly_list if pol2 is not pol ]
 
 

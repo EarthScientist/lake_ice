@@ -36,6 +36,13 @@ if __name__ == '__main__':
 	shp_pols = [ shape(pol['geometry']) for pol in shp_spatfilt ]
 	shp2_pols = [ shape(pol['geometry']) for pol in shp2_spatfilt ]
 
+	shp_pols_areas = [ shp.area for shp in shp_pols ]
+	shp2_pols_areas = [ shp2.area for shp2 in shp2_pols ]
+
+	# remove the large 'sea' polygon
+	shp2_pols = [ i for i in shp2_pols if i.area < max(shp2_pols_areas) ] 
+	shp_pols = [ i for i in shp_pols if i.area < max(shp_pols_areas) ] 
+
 	shape_generator = [ {shp:shp2_pols} for shp in shp_pols ]
 
 	def test_intersect( x ):
@@ -43,9 +50,9 @@ if __name__ == '__main__':
 		shp2_pols = x.values()[0]
 		return { cur_shp:[ cur_shp.intersects( shp2 ) for shp2 in shp2_pols ] }
 
-	pool = mp.Pool( 30 )
+	pool = mp.Pool( 20 )
 
-	print 'multiprocessing now...'
+	print 'multiprocessing now...' + str(len( shape_generator ))
 	intersect_output = pool.map( test_intersect, shape_generator )
 
 	print 'closing pool...'

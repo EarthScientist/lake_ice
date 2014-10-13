@@ -87,7 +87,7 @@ def run( x ):
 		return [ shp2 for shp2 in shp2_pols if cur_shp.intersects( shp2 ) ]
 
 	# run in multicore and close the pool.
-	pool = mp.Pool( 15 )
+	pool = mp.Pool( 30 )
 	print 'multiprocessing now...' + str( len( shape_generator ) )
 	intersect_output = pool.map( test_intersect, shape_generator )
 	print 'closing pool...'
@@ -95,47 +95,58 @@ def run( x ):
 
 	# flatten the list
 	intersect_output2 = [ j for i in intersect_output for j in i ]
+	# global intersect_output2
 
-	# reopen input files with fiona
-	shp1 = fiona.open( shp1_name )
-	shp2 = fiona.open( shp2_name )
+	# reopen inputs & convert to shapely objects
+	shp1_pols = [ (pol, shape(pol['geometry']) ) for pol in fiona.open( shp1_name ) ]
+	shp2_pols = [ (pol, shape(pol['geometry']) ) for pol in fiona.open( shp2_name ) ]
 
-	# convert to shapely polygons
-	print 'make pols'
-	shp1_pols = [ shape(pol['geometry']) for pol in shp1 ]
-	shp2_pols = [ shape(pol['geometry']) for pol in shp2 ]
 
-	print 'remove biggie'
-	shp1_pols = [ i for i in shp1_pols if i.area < max( shp1_pols ) ]
-	shp2_pols = [ i for i in shp2_pols if i.area < max( shp2_pols ) ]
+	print 'remove biggies'
+	# if these are still a big problem try somthing like this:
+		# areas1 = np.array([ j.area for i,j in shp1_pols ])
+		# test = areas1.astype(str)
+		# length_counts = Counter( map(len, test) ) # divide on the smallest one or two?
+	def remove_biggie( x ):
+		pol, max_val = x
+		i,j = pol
+		if j.area < max_val:
+			return pol
+	
+	pool = mp.Pool( 30 )
+	max_val = max( [ j.area for i,j in shp1_pols ] ) - 1000
+	
+	input_generator = ( (i, max_val) for i in shp1_pols )
+
+	shp1_pols = pool.map( lambda x: remove_biggie( x ), input_generator )
+	pool.close()
+
+	pool = mp.Pool( 30 )
+	max_val = max( [ j.area for i,j in shp2_pols ] ) - 1000
+	input_generator = ( (i, max_val) for i in shp2_pols )
+	shp2_pols = pool.map( lambda x: remove_biggie( x ), input_generator )
+	pool.close()
+	
+	# [potential future bug] ...  figure this one out... 
+	# 	for some reason there is a None in the output here:  this removes it... hackily
+	shp2_pols = [ i for i in shp2_pols if isinstance(i, tuple) ]
+
+	# remove biggies in serial.. keep for testing
+	# shp1_pols = [ (i,j) for i,j in shp1_pols if j.area < max( shp1_pols ) ]
+	# shp2_pols = [ (i,j) for i,j in shp2_pols if j.area < max( shp2_pols ) ]
 
 	# remove the ones that overlapped from the 'old' list
-	print 'remove it'
+	print 'remove it --  large bottleneck currently...'
 	def remove_old_overlaps( intersected_pol, old_polygons_list ):
-		return [ i for i in old_polygons_list if i.bounds != intersected_pol.bounds ]
+		return [ (i,j) for i,j in old_polygons_list if j.bounds != intersected_pol.bounds ]
 
-	pool = mp.Pool( 15 )
-	# shp2_pols = pool.map( lambda x: remove_old_overlaps( x, shp2_pols ), intersect_output2 )
-	shp2_pols = pool.map( lambda x: remove_old_overlaps( x, shp2_pols ), intersect_output2 )
+	pool = mp.Pool( 30 )
+	shp2_pols = pool.map( lambda x: remove_old_overlaps( x, shp2_pols ), intersect_output2 ) 
 	pool.close()
 
 	print 'append it'
 	[ shp1_pols.append( i ) for i in shp2_pols ] 
 	return shp1_pols
-
-
-# def shapelist_to_shapefile( list_of_shapes, template_shape, output_filename ):
-# 	'''
-# 	simple function to take the output from the 'run'
-# 	function and convert that list of shapely shapes back
-# 	to fiona shapes and then write it out to an 
-# 	appended shapefile.
-
-# 	'''
-# 	meta = template_shape.meta
-
-# 	with fiona.open( output_filename, mode='w', **meta ) as out:
-# 		# write the list of lists of shapes to a final shapefile
 
 
 if __name__ == '__main__':
@@ -144,8 +155,11 @@ if __name__ == '__main__':
 	# import multiprocessing as mp
 	from shapely.geometry import *
 	from itertools import combinations
+	import numpy as np
 
+	# some setup
 	base_dir = '/workspace/UA/malindgren/projects/Prajna/Test_Files'
+	output_filename = os.path.join( base_dir, 'some_filename_all_appended.shp' )
 
 	# loop through the rasters in some chronological order
 	tiffs = glob.glob( os.path.join( base_dir, '*.tif' ) )
@@ -158,8 +172,8 @@ if __name__ == '__main__':
 	final_intersected = map( lambda x: run( x ), all_combinations )
 	final_intersected_flat = final_intersected[0]
 
-	# hacky way to solve an issue I couldnt figure out above...
-	# figure out why nested lists were being tossed in here too...
+	# # hacky way to solve an issue I couldnt figure out above...
+	# # figure out why nested lists were being tossed in here too...
 	just_lists = [ i for i in final_intersected_flat if isinstance( i, list) ]
 	just_shapes = [ i for i in final_intersected_flat if not isinstance( i, list) ]
 
@@ -168,6 +182,10 @@ if __name__ == '__main__':
 	# then we need to combine our outputs with the outputs from the above
 	# 	potentially do this in a loop to store all members in the end and 
 	#	write to shapefile.
+	schema = fiona.open( polys[0] ).schema # open a template file for the schema
+	with fiona.open( output_filename, 'w', 'ESRI Shapefile', schema) as c:
+		for geom, shp in just_shapes:
+			c.write( geom )
 
-
+	print output_filename
 

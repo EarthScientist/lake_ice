@@ -95,12 +95,9 @@ def run( x ):
 
 	# flatten the list
 	intersect_output2 = [ j for i in intersect_output for j in i ]
-	# global intersect_output2
-
 	# reopen inputs & convert to shapely objects
 	shp1_pols = [ (pol, shape(pol['geometry']) ) for pol in fiona.open( shp1_name ) ]
 	shp2_pols = [ (pol, shape(pol['geometry']) ) for pol in fiona.open( shp2_name ) ]
-
 
 	print 'remove biggies'
 	# if these are still a big problem try somthing like this:
@@ -113,14 +110,13 @@ def run( x ):
 		if j.area < max_val:
 			return pol
 	
+	# remove in parallel from shp1
 	pool = mp.Pool( 30 )
 	max_val = max( [ j.area for i,j in shp1_pols ] ) - 1000
-	
 	input_generator = ( (i, max_val) for i in shp1_pols )
-
 	shp1_pols = pool.map( lambda x: remove_biggie( x ), input_generator )
 	pool.close()
-
+	# remove in parallel from shp2
 	pool = mp.Pool( 30 )
 	max_val = max( [ j.area for i,j in shp2_pols ] ) - 1000
 	input_generator = ( (i, max_val) for i in shp2_pols )

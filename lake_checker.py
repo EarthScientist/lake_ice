@@ -1,5 +1,10 @@
 # # # # #
-# a simple script to make sure that we are not double counting lakes in overlap regions
+# LAKE_MAPPING - LCC - helper script
+# script to remove lakes being double counted on different image tiles at the overlap.
+#  the idea is in the case of overlap between any 2 layers (all combos) remove the offending
+# 	polygons in the 'oldest' (or if same age choose first) layer.  These are all concatenated
+#	to a single large shapefile to be used in later analyses.
+#
 # # # # # 
 
 def bbox_intersection( shp1, shp2 ):
@@ -79,11 +84,10 @@ def run( x ):
 
 	shape_generator = [ {shp1:shp2_pols} for shp1 in shp1_pols ]
 
-	# return the offending polygons, then remove them
+	# return the offending polygons
 	def test_intersect( x ):
 		cur_shp = x.keys()[0]
 		shp2_pols = x.values()[0]
-		shp2_pols_out = shp2_pols
 		return [ shp2 for shp2 in shp2_pols if cur_shp.intersects( shp2 ) ]
 
 	# run in multicore and close the pool.
@@ -93,13 +97,21 @@ def run( x ):
 	print 'closing pool...'
 	pool.close()
 
-	# flatten the list
-	intersect_output2 = [ j for i in intersect_output for j in i ]
+	# some notes:
+	# 	intesect_output is a list of lists each with a single element or nothing.
+	# 	I think it is possible to use these None locations to help remove the unwanted 
+	# 	polygons but I am not so sure.
+	#	- it returns all of the offending polygons... but only for that subregion
+
+	# flatten the list and remove the None's
+	intersect_output2 = [ j for i in intersect_output if len(i) > 0 for j in i ]
+
+	# - - - - - - - - - -  #
 	# reopen inputs & convert to shapely objects
 	shp1_pols = [ (pol, shape(pol['geometry']) ) for pol in fiona.open( shp1_name ) ]
 	shp2_pols = [ (pol, shape(pol['geometry']) ) for pol in fiona.open( shp2_name ) ]
 
-	print 'remove biggies'
+	print 'remove large polygon(s)...'
 	# if these are still a big problem try somthing like this:
 		# areas1 = np.array([ j.area for i,j in shp1_pols ])
 		# test = areas1.astype(str)
@@ -116,6 +128,7 @@ def run( x ):
 	input_generator = ( (i, max_val) for i in shp1_pols )
 	shp1_pols = pool.map( lambda x: remove_biggie( x ), input_generator )
 	pool.close()
+
 	# remove in parallel from shp2
 	pool = mp.Pool( 30 )
 	max_val = max( [ j.area for i,j in shp2_pols ] ) - 1000
@@ -126,22 +139,29 @@ def run( x ):
 	# [potential future bug] ...  figure this one out... 
 	# 	for some reason there is a None in the output here:  this removes it... hackily
 	shp2_pols = [ i for i in shp2_pols if isinstance(i, tuple) ]
-
+	
 	# remove biggies in serial.. keep for testing
 	# shp1_pols = [ (i,j) for i,j in shp1_pols if j.area < max( shp1_pols ) ]
 	# shp2_pols = [ (i,j) for i,j in shp2_pols if j.area < max( shp2_pols ) ]
+	# - - - - - - - - - -  #
 
-	# remove the ones that overlapped from the 'old' list
+	# remove the offending polygons from the full shapefile domain
 	print 'remove it --  large bottleneck currently...'
-	def remove_old_overlaps( intersected_pol, old_polygons_list ):
-		return [ (i,j) for i,j in old_polygons_list if j.bounds != intersected_pol.bounds ]
+	def remove_old_overlaps( intersected_pol, older_polygons_list ):
+		[ older_polygons_list.remove( (i,j) ) for i,j in older_polygons_list if j.bounds == intersected_pol.bounds ]
+		return older_polygons_list
 
 	pool = mp.Pool( 30 )
 	shp2_pols = pool.map( lambda x: remove_old_overlaps( x, shp2_pols ), intersect_output2 ) 
 	pool.close()
 
+	global shp2_pols
+	global intersect_output2
+
 	print 'append it'
-	[ shp1_pols.append( i ) for i in shp2_pols ] 
+	# flatten
+	shp2_pols_flat = [ j for i in shp2_pols for j in i ] # this flattener could be a problem
+	[ shp1_pols.append( i ) for i in shp2_pols_flat ] 
 	return shp1_pols
 
 
@@ -166,15 +186,19 @@ if __name__ == '__main__':
 
 	# run it 
 	final_intersected = map( lambda x: run( x ), all_combinations )
+	
+	# this is all fucked in one way or another 
 	final_intersected_flat = final_intersected[0]
+	final_intersected_flat = [ j for i in final_intersected_flat for j in i if isinstance(j, tuple) ]
 
 	# # hacky way to solve an issue I couldnt figure out above...
 	# # figure out why nested lists were being tossed in here too...
 	just_lists = [ i for i in final_intersected_flat if isinstance( i, list) ]
 	just_shapes = [ i for i in final_intersected_flat if not isinstance( i, list) ]
 
-	hold = [ just_shapes.append(i) for i in just_lists[0] ] 
-
+	# append everything that is a legitimate tuple
+	hold_stdout = [ just_shapes.append( j ) for i in just_lists for j in i if isinstance(i, tuple) ] 
+	
 	# then we need to combine our outputs with the outputs from the above
 	# 	potentially do this in a loop to store all members in the end and 
 	#	write to shapefile.

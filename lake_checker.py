@@ -6,6 +6,9 @@
 #	to a single large shapefile to be used in later analyses.
 #
 # # # # # 
+# Dev Notes 10/13/2014:
+#  - current runtime is ~25 min per file pair... bottleneck is at the removal step...
+#
 
 def bbox_intersection( shp1, shp2 ):
 	'''
@@ -189,22 +192,14 @@ if __name__ == '__main__':
 	
 	# this is all fucked in one way or another 
 	final_intersected_flat = final_intersected[0]
-	final_intersected_flat = [ j for i in final_intersected_flat for j in i if isinstance(j, tuple) ]
+	final_intersected_flat = [ i for i in final_intersected_flat if i is not None ]
 
-	# # hacky way to solve an issue I couldnt figure out above...
-	# # figure out why nested lists were being tossed in here too...
-	just_lists = [ i for i in final_intersected_flat if isinstance( i, list) ]
-	just_shapes = [ i for i in final_intersected_flat if not isinstance( i, list) ]
-
-	# append everything that is a legitimate tuple
-	hold_stdout = [ just_shapes.append( j ) for i in just_lists for j in i if isinstance(i, tuple) ] 
-	
 	# then we need to combine our outputs with the outputs from the above
 	# 	potentially do this in a loop to store all members in the end and 
 	#	write to shapefile.
 	schema = fiona.open( polys[0] ).schema # open a template file for the schema
 	with fiona.open( output_filename, 'w', 'ESRI Shapefile', schema) as c:
-		for geom, shp in just_shapes:
+		for geom, shp in final_intersected_flat:
 			c.write( geom )
 
 	print output_filename

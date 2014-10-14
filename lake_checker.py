@@ -128,8 +128,7 @@ if __name__ == '__main__':
 	base_dir = '/workspace/UA/malindgren/projects/Prajna/Test_Files'
 	output_filename = os.path.join( base_dir, 'some_filename_all_appended.shp' )
 	polys = glob.glob( os.path.join( base_dir, '*.shp' ) )
-	# temporary due to broken file...
-	polys = [polys[0], polys[2]] 
+	polys = [polys[0], polys[2]] # temporary due to broken file...
 
 	# run it 
 	all_combinations = combinations( polys, 2 ) # all unique combos
@@ -139,9 +138,7 @@ if __name__ == '__main__':
 	final_intersected_flat = final_intersected[0]
 	final_intersected_flat = [ i for i in final_intersected_flat if i is not None ]
 
-	# then we need to combine our outputs with the outputs from the above
-	# 	potentially do this in a loop to store all members in the end and 
-	#	write to shapefile.
+	# write out as a shapefile
 	schema = fiona.open( polys[0] ).schema # open a template file for the schema
 	with fiona.open( output_filename, 'w', 'ESRI Shapefile', schema) as c:
 		for geom, shp in final_intersected_flat:

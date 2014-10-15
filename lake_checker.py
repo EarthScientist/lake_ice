@@ -115,13 +115,12 @@ def run( x ):
 		combined_keepers = shp1_pols
 		[ combined_keepers.append( i ) for i in shp2_pols ] # combine the lists
 		return combined_keepers
-	except:
-		try:
-			print 'offenders: %s %s ' % (shp1_name, shp2_name)
-		except: 
-			print 'offenders: %s ' % x
-			pass
+	except Exception as e:
+		log_file.write( e )
+		log_file.write( "- - - - - - - - END  - - - - - - - - - " )
+		print( e )
 		pass
+
 
 if __name__ == '__main__':
 	import rasterio, fiona, shapely, glob, os, dill
@@ -135,12 +134,12 @@ if __name__ == '__main__':
 	base_dir = '/workspace/UA/malindgren/projects/Prajna/Data/Input/Landsat_OLI/Large_Water_Bodies_Only'
 	output_filename = os.path.join( base_dir, 'some_filename_all_appended.shp' )
 	polys = glob.glob( os.path.join( base_dir, '*.shp' ) )
+	log_file = open( os.path.join( base_dir, 'CURRENT_LOG_FILE.txt' ), mode='w' )
 
 	# run it 
 	all_combinations = [ i for i in combinations( polys, 2 ) ] # all unique combos
 	final_intersected = map( lambda x: run( x ), all_combinations )
-	
-	# # this is all fucked in one way or another 
+
 	final_intersected_flat = final_intersected[0]
 	final_intersected_flat = [ i for i in final_intersected_flat if i is not None ]
 	final_intersected_flat = list( set( final_intersected_flat ) )

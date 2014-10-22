@@ -69,12 +69,13 @@ def compare_dates( x ):
 	'''
 	fn1, fn2 = [ os.path.basename( i ).split('_')[0][9:-5] for i in x ]
 	most_recent = str( max( int( fn1 ), int( fn2 ) ) )
+	fn1, fn2 = x
 	if most_recent in fn1:
-		fn1, fn2 = x
 		out = ( fn1, fn2 )
-	else:
-		fn1, fn2 = x
+	elif most_recent in fn2:
 		out = ( fn2, fn1 )
+	else:
+		out = 'TIE!!!!' # this is an annoying test if it finds a tie. :)
 	return out
 
 def compare_extents( shp1, shp2 ):
@@ -98,9 +99,11 @@ def run( x ):
 	# unpack the filenames where shp1 is always the most recent file of the pair
 	try:
 		shp1_base, shp2_base = x 
+		# print 'input filenames %s \n %s ' % x
 
-		# calculate the intersection 
+		# calculate the intersection and anti-intersection of the bboxes
 		bounds_intersect = bbox_intersection( shp1_base, shp2_base )
+		# bounds_difference = bbox_difference( shp1, shp2 )
 
 		# set a spatial filter over the x2 input polygons
 		#	 shapefile iterator over a new fiona object with the 
@@ -134,24 +137,24 @@ def run( x ):
 		# flatten the list & remove the None's
 		intersect_output2 = [ j for i in intersect_output for j in i if j is not None ]
 
-		# # reopen the full shapefiles & convert to shapely objects
-		# shp1_pols = [ ( pol, shape(pol['geometry']) ) for pol in shp1_base ]
-		# shp2_pols = [ ( pol, shape(pol['geometry']) ) for pol in shp2_base ]
+		# reopen the full shapefiles & convert to shapely objects
+		shp1_pols = [ ( pol, shape(pol['geometry']) ) for pol in shp1_base ]
+		shp2_pols = [ ( pol, shape(pol['geometry']) ) for pol in shp2_base ]
 		
-		# # remove the large out-of-bounds polygon
-		# max_val1 = max( [ j.area for i,j in shp1_pols ] ) - 1000
-		# max_val2 = max( [ j.area for i,j in shp2_pols ] ) - 1000
-		# shp1_pols = [ i for i in shp1_pols if i[1].area < max_val1 ]
-		# shp2_pols = [ i for i in shp2_pols if i[1].area < max_val2 ]
+		# remove the large out-of-bounds polygon
+		max_val1 = max( [ j.area for i,j in shp1_pols ] ) - 1000
+		max_val2 = max( [ j.area for i,j in shp2_pols ] ) - 1000
+		shp1_pols = [ i for i in shp1_pols if i[1].area < max_val1 ]
+		shp2_pols = [ i for i in shp2_pols if i[1].area < max_val2 ]
 
-		# # remove the offenders from the larger shp2 polygon list (not spatfilter)
-		# intersect_output2 = list( set( intersect_output2 ) ) # use set to get uniques
-		# output_keepers_test = [ shp2_pols.pop( count ) for count, i in enumerate( shp2_pols ) for j in intersect_output2 if i[1].equals_exact( j, 0 ) ] 
+		# remove the offenders from the larger shp2 polygon list (not spatfilter)
+		intersect_output2 = list( set( intersect_output2 ) ) # use set to get uniques
+		output_keepers_test = [ shp2_pols.pop( count ) for count, i in enumerate( shp2_pols ) for j in intersect_output2 if i[1].equals_exact( j, 0 ) ] 
 
 		# append to all polygons in the full shp1 polygon list (not spatfilter)
-		# combined_keepers = shp1_pols
-		# [ combined_keepers.append( i ) for i in shp2_pols ] # combine the lists
-		return intersect_output2
+		combined_keepers = shp1_pols
+		[ combined_keepers.append( i ) for i in shp2_pols ] # combine the lists
+		return combined_keepers
 	except Exception, err:
 		global err
 		log_file.write( 'ERROR: %s\n' % str(err) )
@@ -169,78 +172,41 @@ if __name__ == '__main__':
 	import numpy as np
 
 	# some setup
-	base_dir = '/workspace/UA/malindgren/projects/Prajna/Data/Input/Version2/Large_Water_Bodies/singlepart_polys' # '/Users/malindgren/Documents/repos/tmp/Large_Water_Bodies' 
+	base_dir = '/workspace/UA/malindgren/projects/Prajna/Data/Input/Version2/Large_Water_Bodies' # '/Users/malindgren/Documents/repos/tmp/Large_Water_Bodies' 
 	output_filename = os.path.join( base_dir, 'Lakes_Merged_v0_1_akalbers.shp' )
-	# polys = glob.glob( os.path.join( base_dir, '*_LWB.shp' ) )
+	# polys = glob.glob( os.path.join( base_dir, '*.shp' ) )
 	log_file = open( os.path.join( base_dir, 'CURRENT_LOG_FILE.txt' ), mode='w' )
 
 	# get em all in the same ref sys in this case I am using AK ALBERS
 	# for poly in polys:
-	# 	print poly
-	# 	os.system( 'ogr2ogr -overwrite -progress -t_srs EPSG:3338 ' + poly.replace( '.shp', '_akalbers.shp' ) + ' ' + poly )
+	# 	os.system( 'ogr2ogr -t_srs EPSG:4326 ' + poly.replace( '.shp', '_akalbers.shp' ) + ' ' + poly )
 
 	polys = glob.glob( os.path.join( base_dir, '*_akalbers.shp' ) )
 
 	# run it 
-	all_combinations = [ i for i in combinations( polys, 2 ) ] # all unique combos
-	all_combinations = [ compare_dates((i,j)) for i,j in all_combinations if compare_extents(fiona.open(i), fiona.open(j)) ] # all uniques whose BBOX overlaps
-	# all_combinations = [ compare_dates((i,j)) for i,j in all_combinations ]
+	all_combinations = [ compare_dates((i,j)) for i,j in combinations( polys, 2 ) ] # all unique combos
+
 	# maybe its best to just open the file handles? since there are some flushing and closing issues otherwise
 	all_combinations_opened = [ ( fiona.open( i ), fiona.open( j ) ) for i,j in all_combinations ]
+	
+	all_combinations = [ (i,j) for i,j in all_combinations_opened if compare_extents(i,j) ] # all uniques whose BBOX overlaps
 
 	final_intersected = map( lambda x: run( x ), all_combinations_opened )
 
-	# # zip it together with the input all_combinations shp_name2 since that is the oldie.
-	# names_for_removal = zip( [ j for i,j in all_combinations ], final_intersected )
-	# # names_for_removal = [ (i,j) for i,j in names_for_removal if len(j) > 0 ]
-
-	# def remove_offenders( x ):
-	# 	shp_name, remove_pols = x
-
-	# 	print shp_name
-
-	# 	with fiona.open( shp_name ) as shp:
-	# 		schema = shp.schema.copy() # open a template file for the schema or make one...
-	# 		shp_pols = [ (shape(i['geometry']), i) for i in shp ] # convert to shapely shapes
-		
-	# 	if len(remove_pols) is 0:
-	# 		out = [ j for i,j in shp_pols ] # get just the polygons
-	# 	else:
-	# 		for i in remove_pols:
-	# 			for count, dat in enumerate(shp_pols):
-	# 				for j,k in dat:
-	# 					if j.equals_exact( i, 0.0 ):
-	# 						shp_pols.pop( count )
-	# 		out = [ j for i,j in shp_pols ]
-
-	# 	output_filename = os.path.join( base_dir, shp.name + '_no_overlap.shp' )
-	# 	# schema = OrderedDict([ ('filename', 'str:254') ])
-	# 	with fiona.open( output_filename, 'w', 'ESRI Shapefile', schema ) as c:
-	# 		for geom in out:
-	# 			c.write( geom )
-	# 	return 1
-
-	# pool = mp.Pool( 16 )
-	# # out = [ remove_offenders( x ) for x in names_for_removal ]
-	# out = pool.map( lambda x: remove_offenders( x ), names_for_removal )
-	# pool.close()
-	
-
-	# out_flat = [ j for i in out for j in i ] 
-
-	# # final_intersected_flat = final_intersected[0]
-	# # final_intersected_flat = [ i for i in final_intersected_flat if i is not None ]
-	# # final_intersected_flat = list( set( final_intersected_flat ) )
+	# final_intersected_flat = final_intersected[0]
+	final_intersected_flat = [ j for i in final_intersected if i is not None ]
+	final_intersected_flat = [ j for i in final_intersected_flat if j in i ]
+	# final_intersected_flat = list( set( final_intersected_flat ) )
 
 	# # write out as a shapefile
-	# schema = fiona.open( polys[0] ).schema # open a template file for the schema or make one...
-	# with fiona.open( output_filename, 'w', 'ESRI Shapefile', schema) as c:
-	# 	for geom in out_flat:
-	# 		c.write( geom )
+	schema = fiona.open( polys[0] ).schema # open a template file for the schema
+	with fiona.open( output_filename, 'w', 'ESRI Shapefile', schema) as c:
+		for geom, shp in final_intersected_flat:
+			c.write( geom )
 
 	log_file.close()
 
-	# print( 'final output shapefile path: ' + output_filename )
+	print( 'final output shapefile path: ' + output_filename )
 
 
 
@@ -251,9 +217,5 @@ if __name__ == '__main__':
 # 	- the non intersecting regions can go into a single list of polygons.
 # 	- the remainder need to be in nested lists where we know the date of the polygons we are testing
 
-
-# current times: 
-	# CPU times: user 1h 16min 36s, sys: 809 ms, total: 1h 16min 37s
-	# Wall time: 1h 18min 12s
 
 
